@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Helpers
+# ==============================================================================
+
+# Start a program in its own session so it is not tied to the launcher.
+launch() {
+	local program=$1
+	shift
+
+	if [[ ${DWM_AUTOSTART_NO_SETSID:-0} != 1 ]] && command -v setsid >/dev/null 2>&1; then
+		setsid -f "$program" "$@" >/dev/null 2>&1
+	else
+		"$program" "$@" >/dev/null 2>&1 &
+	fi
+}
+
+# Start a program only when it is installed and not already running.
+run_once() {
+	local program=$1
+	shift
+
+	command -v "$program" >/dev/null 2>&1 || return
+	pgrep -u "$UID" -x "${program##*/}" >/dev/null 2>&1 && return
+
+	launch "$program" "$@"
+}
+
+# Restart a program so it picks up fresh configuration.
+restart_run() {
+	local program=$1
+	shift
+
+	command -v "$program" >/dev/null 2>&1 || return
+
+	if pkill -u "$UID" -x "${program##*/}" 2>/dev/null; then
+		sleep 0.2
+	fi
+	launch "$program" "$@"
+}
+
+# ==============================================================================
+# Session environment
+# ==============================================================================
+
+# Publish the session environment to systemd and D-Bus, in parallel. Only
+# variables that exist are copied, so unset ones are never exported as empty.
+session_vars=()
+for var in \
+	DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_DATA_DIRS DESKTOP_SESSION \
+	XDG_SESSION_TYPE QT_QPA_PLATFORM QT_QPA_PLATFORMTHEME \
+	XCURSOR_THEME XCURSOR_SIZE; do
+	[[ -n ${!var:-} ]] && session_vars+=("$var")
+done
+
+systemctl_pid=
+if command -v systemctl >/dev/null 2>&1; then
+	(
+		timeout 5 systemctl --user unset-environment WAYLAND_DISPLAY
+		timeout 5 systemctl --user import-environment "${session_vars[@]}"
+	) &
+	systemctl_pid=$!
+fi
+
+dbus_pid=
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+	(
+		dbus-update-activation-environment WAYLAND_DISPLAY=
+		dbus-update-activation-environment --systemd "${session_vars[@]}"
+	) >/dev/null 2>&1 &
+	dbus_pid=$!
+fi
+
+[[ -z $systemctl_pid ]] || wait "$systemctl_pid"
+[[ -z $dbus_pid ]] || wait "$dbus_pid"
+
+# ==============================================================================
+# Core services
+# ==============================================================================
+
+if command -v picom >/dev/null 2>&1 && ! pgrep -u "$UID" -x picom >/dev/null 2>&1; then
+	if ! picom -b >/dev/null 2>&1; then
+		launch picom --backend xrender --vsync -b
+	else
+		sleep 0.5
+		pgrep -u "$UID" -x picom >/dev/null 2>&1 ||
+			launch picom --backend xrender --vsync -b
+	fi
+fi
+
+restart_run dunst
+restart_run slstatus
+
+# ==============================================================================
+# X11 settings
+# ==============================================================================
+
+if command -v xset >/dev/null 2>&1; then
+	xset s off
+	xset s noblank
+	xset -dpms
+	xset r rate 200 35
+fi
+
+if command -v setxkbmap >/dev/null 2>&1; then
+	setxkbmap -layout us,ara -option grp:alt_shift_toggle
+fi
+
+# ==============================================================================
+# Screen locker
+# ==============================================================================
+
+if command -v xss-lock >/dev/null 2>&1 && ! pgrep -u "$UID" -x xss-lock >/dev/null 2>&1; then
+	if command -v slock >/dev/null 2>&1; then
+		launch
+	elif command -v i3lock >/dev/null 2>&1; then
+		launch xss-lock --transfer-sleep-lock -- i3lock --nofork
+	fi
+fi
+
+# ==============================================================================
+# Audio (PipeWire / PulseAudio)
+# ==============================================================================
+
+# systemd and dinit manage their own user services, so leave audio to them.
+audio_init=$(cat /proc/1/comm 2>/dev/null || :)
+
+if [[ $audio_init != systemd && $audio_init != dinit && -d $XDG_RUNTIME_DIR ]]; then
+	audio_server=
+	if command -v pipewire >/dev/null 2>&1; then
+		audio_server=pipewire
+	elif command -v pulseaudio >/dev/null 2>&1; then
+		audio_server=pulseaudio
+	fi
+
+	if [[ -n $audio_server ]]; then
+		# Restart by default so configuration changes are picked up. Set
+		# DWM_AUTOSTART_RESTART_AUDIO=0 to only start a missing server.
+		audio_restart=0
+		case ${DWM_AUTOSTART_RESTART_AUDIO:-1} in
+		0 | false | no | off) audio_restart=0 ;;
+		esac
+
+		# Use sv only when the service directory exists and is supervised;
+		# otherwise manage the server directly.
+		svdir=${SVDIR:-$HOME/.config/service}
+		if [[ -d $svdir/$audio_server ]] && command -v sv >/dev/null 2>&1 &&
+			sv status "$svdir/$audio_server" >/dev/null 2>&1; then
+			if [[ $audio_restart -eq 1 ]]; then
+				sv restart "$svdir/$audio_server" >/dev/null 2>&1
+			else
+				sv start "$svdir/$audio_server" >/dev/null 2>&1
+			fi
+		elif [[ $audio_restart -eq 1 ]]; then
+			[[ $audio_server != pipewire ]] ||
+				pkill -u "$UID" -x wireplumber 2>/dev/null
+			restart_run "$audio_server"
+		else
+			run_once "$audio_server"
+		fi
+	fi
+fi
+
+# ==============================================================================
+# Authentication agent
+# ==============================================================================
+
+for agent in \
+	/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 \
+	/usr/libexec/polkit-gnome-authentication-agent-1 \
+	/usr/lib/mate-polkit/polkit-mate-authentication-agent-1 \
+	/usr/libexec/polkit-mate-authentication-agent-1 \
+	/usr/lib/polkit-kde-authentication-agent-1 \
+	/usr/libexec/polkit-kde-authentication-agent-1 \
+	/usr/bin/lxqt-policykit-agent \
+	/usr/bin/lxpolkit \
+	/usr/lib/lxpolkit/lxpolkit; do
+	[[ -x $agent ]] || continue
+
+	# Agent names exceed the 15-character comm limit, so match argv[0].
+	pgrep -u "$UID" -f -- "^$agent( |$)" >/dev/null 2>&1 || launch "$agent"
+	break
+done
+
+# ==============================================================================
+# Wallpaper
+# ==============================================================================
+
+ENABLE_WALLPAPER=0
+WALLPAPER_DIR=${WALLPAPER_DIR:-$HOME/Pictures}
+
+if [[ $ENABLE_WALLPAPER == 1 ]] && command -v feh >/dev/null 2>&1; then
+	if [[ -f $HOME/.fehbg ]]; then
+		"$HOME/.fehbg"
+	elif [[ -d $WALLPAPER_DIR ]]; then
+		wallpaper=$(find "$WALLPAPER_DIR" -type f \
+			\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) \
+			2>/dev/null | shuf -n 1)
+		[[ -z $wallpaper ]] || feh --bg-fill "$wallpaper"
+	fi
+fi
+
+# ==============================================================================
+# Tray applets
+# ==============================================================================
+
+restart_run nm-applet
+restart_run blueman-applet
+restart_run pa-applet
+
+# ==============================================================================
+# Redshift
+# ==============================================================================
+
+run_once redshift
+
+# Autostart only manages services; dwm is started by scripts/startdwm.

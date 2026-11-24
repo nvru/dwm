@@ -1,0 +1,69 @@
+# Approximation of suckless dwm style (https://suckless.org/coding_style/).
+# clang-format cannot reproduce suckless style perfectly; review diffs.
+# Verified by hand against git://git.suckless.org/dwm
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+# Indentation: tabs for indentation, spaces for alignment
+UseTab: AlignWithSpaces
+IndentWidth: 8
+TabWidth: 8
+ContinuationIndentWidth: 8
+
+# Line length
+ColumnLimit: 79
+
+# Braces: function definitions on next line, control statements same line
+BreakBeforeBraces: Linux
+AlwaysBreakAfterDefinitionReturnType: All
+AlwaysBreakAfterReturnType: AllDefinitions
+
+# Short statements
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Cases not indented another level
+IndentCaseLabels: false
+IndentGotoLabels: false
+
+# Spacing
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Pointers: adjacent to variable name
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# Keep include order as written (suckless has specific ordering rules)
+SortIncludes: Never
+IncludeBlocks: Preserve
+
+# Alignment - helps match dwm macro/variable style; may still differ
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveDeclarations:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignEscapedNewlines: Left
+AlignTrailingComments:
+  Kind: Leave
+
+# Misc
+ReflowComments: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+InsertBraces: false
+RemoveBracesLLVM: false

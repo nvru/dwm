@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Environment
+# ==============================================================================
+
+export XDG_SESSION_DESKTOP="${XDG_SESSION_DESKTOP:-dwm}"
+export DESKTOP_SESSION="${DESKTOP_SESSION:-dwm}"
+export XDG_SESSION_TYPE=x11
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export QT_QPA_PLATFORM=xcb
+export _JAVA_AWT_WM_NONREPARENTING=1
+
+unset WAYLAND_DISPLAY
+
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
+if [[ -S $XDG_RUNTIME_DIR/bus ]]; then
+	: "${DBUS_SESSION_BUS_ADDRESS:=unix:path=$XDG_RUNTIME_DIR/bus}"
+	export DBUS_SESSION_BUS_ADDRESS
+fi
+
+# ==============================================================================
+# Start dwm
+# ==============================================================================
+
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}"
+log="${XDG_STATE_HOME:-$HOME/.local/state}/dwm.log"
+
+while true; do
+	dwm >>"$log" 2>&1
+	sleep 1
+done

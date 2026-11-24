@@ -1,0 +1,13 @@
+# build output
+dwm
+*.o
+dwm-*.tar.gz
+
+# generated from config.def.h
+config.h
+
+# editor / OS leftovers
+*~
+*.swp
+*.swo
+.DS_Store
